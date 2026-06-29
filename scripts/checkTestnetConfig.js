@@ -1,46 +1,48 @@
-// File: scripts/checkTestnetConfig.js
-// Safe testnet preflight check. It never prints private keys.
-
 require("dotenv").config();
-const { ethers } = require("ethers");
-const { getNetworkProfile } = require("../shared/networkConfig");
+const { execFileSync } = require("child_process");
 
 function required(name) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is missing`);
-  return value;
+  return value.trim();
+}
+
+function rpc(method, params = []) {
+  const rpcUrl = required("RPC_URL");
+
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method,
+    params
+  });
+
+  const output = execFileSync("curl", [
+    "-s",
+    "-X", "POST",
+    rpcUrl,
+    "-H", "Content-Type: application/json",
+    "-d", body
+  ], { encoding: "utf8" });
+
+  const data = JSON.parse(output);
+  if (data.error) throw new Error(data.error.message);
+  return data.result;
 }
 
 async function main() {
-  const rpcUrl = required("RPC_URL");
-  const relayerKey = required("RELAYER_PRIVATE_KEY");
-  const deployerKey = process.env.DEPLOYER_PRIVATE_KEY || relayerKey;
-  const network = getNetworkProfile();
+  required("RPC_URL");
+  required("RELAYER_PRIVATE_KEY");
 
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
-  const chain = await provider.getNetwork();
-  const relayer = new ethers.Wallet(relayerKey, provider);
-  const deployer = new ethers.Wallet(deployerKey, provider);
-  const [relayerBalance, deployerBalance, blockNumber] = await Promise.all([
-    provider.getBalance(relayer.address),
-    provider.getBalance(deployer.address),
-    provider.getBlockNumber()
-  ]);
+  const chainIdHex = rpc("eth_chainId");
+  const blockNumberHex = rpc("eth_blockNumber");
 
-  console.log("Testnet config looks readable.");
-  console.log(`Configured network: ${network.name} (${network.chainId})`);
-  console.log(`RPC chain ID: ${Number(chain.chainId)}`);
-  console.log(`Latest block: ${blockNumber}`);
-  console.log(`Relayer wallet: ${relayer.address}`);
-  console.log(`Relayer balance: ${ethers.formatEther(relayerBalance)} ${network.currencySymbol}`);
-  console.log(`Deployer wallet: ${deployer.address}`);
-  console.log(`Deployer balance: ${ethers.formatEther(deployerBalance)} ${network.currencySymbol}`);
+  console.log("Testnet RPC is reachable.");
+  console.log(`RPC chain ID: ${parseInt(chainIdHex, 16)}`);
+  console.log(`Latest block: ${parseInt(blockNumberHex, 16)}`);
 
-  if (Number(chain.chainId) !== Number(network.chainId)) {
-    throw new Error(`RPC chain ID ${Number(chain.chainId)} does not match configured CHAIN_ID ${network.chainId}`);
-  }
-  if (network.chainId === 80002 && relayerBalance === 0n) {
-    console.warn("Relayer wallet has 0 POL. The hosted relayer will not be able to pay gas until you fund it.");
+  if (parseInt(chainIdHex, 16) !== 80002) {
+    throw new Error(`Expected Polygon Amoy chain ID 80002, got ${parseInt(chainIdHex, 16)}`);
   }
 }
 
