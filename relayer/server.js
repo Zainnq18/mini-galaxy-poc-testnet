@@ -58,6 +58,80 @@ function resolveDeployNetwork() {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error(`Unsafe Hardhat network name: ${value}`);
   return value;
 }
+function _healthRequiredEnv(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is missing`);
+  return value.trim();
+}
+
+function _normalizePrivateKey(key) {
+  const trimmed = key.trim();
+  return trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
+}
+
+async function _healthRpc(method, params = []) {
+  const rpcUrl = _healthRequiredEnv("RPC_URL");
+
+  const response = await fetch(rpcUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method,
+      params
+    })
+  });
+
+  const data = await response.json();
+
+  if (data.error) {
+    throw new Error(data.error.message || "RPC request failed");
+  }
+
+  return data.result;
+}
+
+async function healthHandler(req, res) {
+  try {
+    const { ethers } = require("ethers");
+
+    const relayerPrivateKey = _normalizePrivateKey(
+      _healthRequiredEnv("RELAYER_PRIVATE_KEY")
+    );
+
+    const relayer = new ethers.Wallet(relayerPrivateKey);
+
+    const chainIdHex = await _healthRpc("eth_chainId");
+    const blockNumberHex = await _healthRpc("eth_blockNumber");
+
+    const chainId = parseInt(chainIdHex, 16);
+    const block = parseInt(blockNumberHex, 16);
+
+    res.json({
+      ok: true,
+      relayer: relayer.address,
+      network: {
+        name: process.env.NETWORK_NAME || "Polygon Amoy",
+        chainId
+      },
+      deployNetworkName: process.env.HARDHAT_DEPLOY_NETWORK || "polygonAmoy",
+      deploymentRegistry: process.env.DEPLOYMENT_REGISTRY_ADDRESS || null,
+      block
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+}
+
+app.get("/api/health", healthHandler);
+app.get("/health", healthHandler);
+app.get("/", healthHandler);
 
 function readJson(file, fallback = null) {
   try {
