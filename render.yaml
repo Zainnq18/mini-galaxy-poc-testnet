@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: mini-galaxy-relayer
+    env: node
+    plan: free
+    buildCommand: npm install && npm run compile
+    startCommand: npm run relayer
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NETWORK_NAME
+        value: Polygon Amoy
+      - key: CHAIN_ID
+        value: 80002
+      - key: CURRENCY_SYMBOL
+        value: POL
+      - key: BLOCK_EXPLORER_URL
+        value: https://amoy.polygonscan.com
+      - key: RPC_URL
+        value: https://polygon-amoy.drpc.org
+      - key: POLYGON_AMOY_RPC_URL
+        value: https://polygon-amoy.drpc.org
+      - key: HARDHAT_DEPLOY_NETWORK
+        value: polygonAmoy
+      - key: DEPLOYER_PRIVATE_KEY
+        sync: false
+      - key: RELAYER_PRIVATE_KEY
+        sync: false
+      - key: DEPLOYMENT_REGISTRY_ADDRESS
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ISSUER_PASSWORD
+        sync: false
+      - key: TRANSFER_AGENT_PASSWORD
+        sync: false
+      - key: INSPECTOR_PASSWORD
+        sync: false
+      - key: SOLICITOR_PASSWORD
+        sync: false
