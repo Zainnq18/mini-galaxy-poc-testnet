@@ -86,6 +86,20 @@ function truncate(value, max = 42) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+function explorerBaseUrl(config) {
+  return (config?.network?.blockExplorerUrl || "https://amoy.polygonscan.com").replace(/\/+$/, "");
+}
+
+function explorerAddressUrl(config, address, tab = "code") {
+  if (!address) return null;
+  return `${explorerBaseUrl(config)}/address/${address}${tab ? `#${tab}` : ""}`;
+}
+
+function explorerTxUrl(config, txHash) {
+  if (!txHash) return null;
+  return `${explorerBaseUrl(config)}/tx/${txHash}`;
+}
+
 function tokenPromptKey(account, eligibility) {
   if (!account || !eligibility?.tokenAddress) return null;
   return `br_proxy_token_prompt_v44_${account.toLowerCase()}_${eligibility.tokenAddress.toLowerCase()}`;
@@ -109,8 +123,10 @@ function DataRow({ label, value }) {
   );
 }
 
-function OperationModal({ operation }) {
+function OperationModal({ operation, onClose }) {
   if (!operation) return null;
+  const verification = operation.verification;
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className={`modal-card ${operation.tone || "success"}`}>
@@ -130,6 +146,39 @@ function OperationModal({ operation }) {
             <div className="tx-proof">
               <span>Transaction</span>
               <strong>{operation.txHash}</strong>
+            </div>
+          )}
+          {verification && (
+            <details className="verification-disclosure">
+              <summary>
+                <span>Optional verification</span>
+                <small>Inspect this vote on Polygonscan</small>
+              </summary>
+              <div className="verification-body">
+                {verification.contractAddress && (
+                  <div className="verification-contract">
+                    <span>Voting contract</span>
+                    <strong>{verification.contractAddress}</strong>
+                  </div>
+                )}
+                {verification.links?.length > 0 && (
+                  <div className="verification-links">
+                    {verification.links.map((link) => (
+                      <a key={link.href} className="secondary-button small" href={link.href} target="_blank" rel="noreferrer">
+                        {link.label}
+                      </a>
+                    ))}
+                  </div>
+                )}
+                <p className="verification-note">
+                  These links are optional. They open the public Amoy Polygonscan pages for the submitted transaction and the verified voting contract.
+                </p>
+              </div>
+            </details>
+          )}
+          {operation.dismissible && (
+            <div className="modal-actions">
+              <button className="primary-button" type="button" onClick={onClose}>Done</button>
             </div>
           )}
         </div>
@@ -510,9 +559,29 @@ function VotePage({ account, eligibility, config, onConnect, refresh, setOperati
       const signature = await signTypedBallot(signerAccount, ballot.typedDataForWallet, walletProvider);
       setOperation({ kicker: "Ballot", title: "Submitting", progress: 80 });
       const relay = await relayVote(signerAccount, numericChoices, signedMessage, signature);
-      setOperation({ kicker: "Ballot", title: "Submitted", tone: "success", progress: 100, txHash: relay.txHash });
+      const votingContract = config?.contracts?.voting;
+      const txUrl = explorerTxUrl(config, relay.txHash);
+      const codeUrl = explorerAddressUrl(config, votingContract, "code");
+      const readUrl = explorerAddressUrl(config, votingContract, "readContract");
+
+      setOperation({
+        kicker: "Ballot",
+        title: "Vote submitted on-chain",
+        text: "Your ballot was relayed to Polygon Amoy. You can close this message now, or optionally inspect the transaction and verified voting contract.",
+        tone: "success",
+        progress: 100,
+        txHash: relay.txHash,
+        verification: {
+          contractAddress: votingContract,
+          links: [
+            txUrl && { label: "View transaction", href: txUrl },
+            codeUrl && { label: "Verified contract", href: codeUrl },
+            readUrl && { label: "Read contract", href: readUrl }
+          ].filter(Boolean)
+        },
+        dismissible: true
+      });
       await refresh();
-      window.setTimeout(() => setOperation(null), 1800);
     } catch (error) {
       setOperation({ kicker: "Ballot", title: "Rejected", text: error.message, tone: "danger" });
       window.setTimeout(() => setOperation(null), 3000);
@@ -839,7 +908,7 @@ export default function App() {
 
   return (
     <Shell config={config} account={account} eligibility={eligibility} onConnect={handleConnect} onDisconnect={handleDisconnect}>
-      <OperationModal operation={operation} />
+      <OperationModal operation={operation} onClose={() => setOperation(null)} />
       <Routes>
         <Route path="/" element={<InvestorPortal account={account} eligibility={eligibility} config={config} onConnect={handleConnect} refresh={refresh} walletProvider={walletProvider} setOperation={setOperation} />} />
         <Route path="/investor" element={<InvestorPortal account={account} eligibility={eligibility} config={config} onConnect={handleConnect} refresh={refresh} walletProvider={walletProvider} setOperation={setOperation} />} />

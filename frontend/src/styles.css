@@ -1346,6 +1346,107 @@ p {
   gap: 12px;
 }
 
+
+/* ============================================================
+   Optional post-vote verification links
+   ============================================================ */
+.verification-disclosure {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.verification-disclosure summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.verification-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.verification-disclosure summary::after {
+  content: "+";
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--blue-wash);
+  color: var(--blue-deep);
+  border: 1px solid #dce9fb;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.verification-disclosure[open] summary::after {
+  content: "–";
+}
+
+.verification-disclosure summary small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.verification-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 14px 14px;
+}
+
+.verification-contract {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+
+.verification-contract span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.verification-contract strong {
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.verification-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.verification-links a {
+  text-decoration: none;
+}
+
+.verification-note {
+  color: var(--muted);
+  font-size: 12.5px !important;
+  line-height: 1.45 !important;
+}
+
 /* ============================================================
    Responsive
    ============================================================ */
