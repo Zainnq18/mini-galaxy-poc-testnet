@@ -42,7 +42,21 @@ if (process.env.POLYGON_RPC_URL && process.env.DEPLOYER_PRIVATE_KEY) {
 module.exports = {
   solidity: {
     version: "0.8.20",
-    settings: { optimizer: { enabled: true, runs: 200 } }
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200,
+      },
+    },
   },
-  networks
+
+  networks,
+
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY,
+  },
+
+  sourcify: {
+    enabled: true,
+  },
 };
