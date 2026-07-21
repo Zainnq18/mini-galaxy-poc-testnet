@@ -57,6 +57,178 @@ function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
 }
 
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isLocalNetwork(chainId) {
+  return chainId === 31337;
+}
+
+function isAlreadyVerifiedError(error) {
+  const message = String(
+    error?.message ||
+    error?.shortMessage ||
+    error ||
+    ""
+  ).toLowerCase();
+
+  return (
+    message.includes("already verified") ||
+    message.includes("already been verified") ||
+    message.includes("contract source code already verified")
+  );
+}
+
+async function verifyContract({
+  name,
+  address,
+  constructorArguments,
+  contract,
+  attempts = 4,
+}) {
+  if (!process.env.ETHERSCAN_API_KEY) {
+    console.warn(
+      `[verification] Skipping ${name}: ETHERSCAN_API_KEY is not configured.`
+    );
+
+    return {
+      verified: false,
+      skipped: true,
+      reason: "ETHERSCAN_API_KEY is not configured",
+    };
+  }
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      console.log(
+        `[verification] Verifying ${name} at ${address} ` +
+        `(attempt ${attempt}/${attempts})...`
+      );
+
+      await hre.run("verify:verify", {
+        address,
+        constructorArguments,
+        contract,
+      });
+
+      console.log(`[verification] ${name} verified successfully.`);
+
+      return {
+        verified: true,
+        address,
+      };
+    } catch (error) {
+      if (isAlreadyVerifiedError(error)) {
+        console.log(`[verification] ${name} is already verified.`);
+
+        return {
+          verified: true,
+          alreadyVerified: true,
+          address,
+        };
+      }
+
+      const message = String(
+        error?.message ||
+        error?.shortMessage ||
+        error
+      );
+
+      console.error(
+        `[verification] ${name} attempt ${attempt} failed: ${message}`
+      );
+
+      if (attempt === attempts) {
+        return {
+          verified: false,
+          address,
+          error: message,
+        };
+      }
+
+      // Explorers sometimes need time to index newly deployed bytecode.
+      await sleep(attempt * 15000);
+    }
+  }
+
+  return {
+    verified: false,
+    address,
+    error: "Verification attempts exhausted",
+  };
+}
+
+async function verifyEventContracts({
+  chainId,
+  accessListAddress,
+  tokenAddress,
+  votingAddress,
+  deployerAddress,
+  event,
+}) {
+  if (isLocalNetwork(chainId)) {
+    console.log(
+      "[verification] Local Hardhat deployments cannot be published to PolygonScan."
+    );
+
+    return {
+      skipped: true,
+      reason: "Local development network",
+    };
+  }
+
+  console.log(
+    "[verification] Waiting for explorer indexing before verification..."
+  );
+
+  await sleep(20000);
+
+  const accessList = await verifyContract({
+    name: "AccessList",
+    address: accessListAddress,
+    constructorArguments: [
+      deployerAddress,
+    ],
+    contract: "contracts/AccessList.sol:AccessList",
+  });
+
+  const companyToken = await verifyContract({
+    name: "CompanyToken",
+    address: tokenAddress,
+    constructorArguments: [
+      event.tokenName,
+      event.tokenSymbol,
+      accessListAddress,
+      deployerAddress,
+    ],
+    contract: "contracts/CompanyToken.sol:CompanyToken",
+  });
+
+  const proxyVoting = await verifyContract({
+    name: "ProxyVoting",
+    address: votingAddress,
+    constructorArguments: [
+      accessListAddress,
+      tokenAddress,
+      event.issuerName,
+      event.eventTitle,
+      event.eventCode,
+      event.votingStartTimestamp,
+      event.votingEndTimestamp,
+      event.quorumBps,
+      deployerAddress,
+    ],
+    contract: "contracts/ProxyVoting.sol:ProxyVoting",
+  });
+
+  return {
+    accessList,
+    companyToken,
+    proxyVoting,
+  };
+}
+
 async function main() {
   const [deployer] = await ethers.getSigners();
   const event = parseEventConfig();
