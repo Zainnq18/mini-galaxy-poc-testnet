@@ -3,7 +3,8 @@
 
 const fs = require("fs");
 const path = require("path");
-const { ethers } = require("hardhat");
+const hre = require("hardhat");
+const { ethers } = hre;
 const { DEFAULT_QUORUM_BPS, DEFAULT_VOTING_DURATION_SECONDS, DEFAULT_SHAREHOLDER_REGISTRY } = require("../shared/constants");
 const { getNetworkProfile } = require("../shared/networkConfig");
 
