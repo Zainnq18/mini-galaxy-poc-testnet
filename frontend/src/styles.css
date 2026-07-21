@@ -1986,3 +1986,69 @@ p {
     display: none;
   }
 }
+/* Investor vote transaction verification */
+
+.vote-verification-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 11px 13px;
+  border: 1px solid rgba(25, 103, 210, 0.22);
+  border-radius: 8px;
+  background: rgba(25, 103, 210, 0.06);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.vote-verification-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: #1967d2;
+  font-family: Georgia, serif;
+  font-size: 12px;
+  font-weight: 700;
+  font-style: normal;
+}
+
+.vote-verification-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.vote-verification-content > span {
+  color: var(--text-primary, #1f2937);
+}
+
+.vote-verification-link {
+  width: fit-content;
+  color: #1967d2;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.vote-verification-link:hover {
+  text-decoration: underline;
+}
+
+.vote-verification-link:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid #1967d2;
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .vote-verification-notice {
+    padding: 10px;
+    font-size: 12px;
+  }
+}
