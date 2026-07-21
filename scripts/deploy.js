@@ -269,19 +269,60 @@ async function main() {
     await (await voting.addProposal(proposal.question, proposal.options, { gasLimit: 3_000_000 })).wait();
   }
 
-  const network = await ethers.provider.getNetwork();
-  const deployment = {
-    deployed: true,
-    deployedAt: new Date().toISOString(),
-    deployer: deployer.address,
-    network: { ...getNetworkProfile(), chainId: Number(network.chainId) },
-    contracts: {
-      accessList: await accessList.getAddress(),
-      zynToken: await token.getAddress(),
-      voting: await voting.getAddress()
-    },
-    event
-  };
+const network = await ethers.provider.getNetwork();
+const chainId = Number(network.chainId);
+
+const accessListAddress = await accessList.getAddress();
+const tokenAddress = await token.getAddress();
+const votingAddress = await voting.getAddress();
+
+const explorerBaseUrl =
+  chainId === 80002
+    ? "https://amoy.polygonscan.com"
+    : chainId === 137
+      ? "https://polygonscan.com"
+      : null;
+
+const verification = await verifyEventContracts({
+  chainId,
+  accessListAddress,
+  tokenAddress,
+  votingAddress,
+  deployerAddress: deployer.address,
+  event,
+});
+
+const deployment = {
+  deployed: true,
+  deployedAt: new Date().toISOString(),
+  deployer: deployer.address,
+
+  network: {
+    ...getNetworkProfile(),
+    chainId,
+  },
+
+  contracts: {
+    accessList: accessListAddress,
+    zynToken: tokenAddress,
+    voting: votingAddress,
+  },
+
+  explorer: explorerBaseUrl
+    ? {
+        baseUrl: explorerBaseUrl,
+        contracts: {
+          accessList: `${explorerBaseUrl}/address/${accessListAddress}#code`,
+          zynToken: `${explorerBaseUrl}/address/${tokenAddress}#code`,
+          voting: `${explorerBaseUrl}/address/${votingAddress}#code`,
+        },
+      }
+    : null,
+
+  verification,
+
+  event,
+};
 
   const root = path.resolve(__dirname, "..");
   writeJson(path.join(root, "relayer", "deployment.json"), deployment);
