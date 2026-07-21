@@ -480,14 +480,41 @@ function VotePage({ account, eligibility, config, onConnect, refresh, setOperati
   const navigate = useNavigate();
   const proposals = config?.proposals || [];
   const [choices, setChoices] = useState([]);
+  const [voteTxHash, setVoteTxHash] = useState("");
   const complete = proposals.length > 0 && choices.length === proposals.length && choices.every((choice) => choice !== null && choice !== undefined);
   const selected = choices.filter((choice) => choice !== null && choice !== undefined).length;
   const progress = proposals.length ? Math.round((selected / proposals.length) * 100) : 0;
   const symbol = config?.event?.tokenSymbol || eligibility?.tokenSymbol || "";
+  const votingContractAddress = config?.contracts?.voting;
+
+const voteReceiptStorageKey =
+  account && votingContractAddress
+    ? `broadridge_vote_tx_${account.toLowerCase()}_${votingContractAddress.toLowerCase()}`
+    : null;
+
+const blockExplorerBaseUrl =
+  config?.network?.blockExplorerUrl ||
+  "https://amoy.polygonscan.com";
+
+const voteTransactionUrl = voteTxHash
+  ? `${blockExplorerBaseUrl}/tx/${voteTxHash}`
+  : "";
 
   useEffect(() => {
     setChoices(proposals.map(() => null));
   }, [proposals.length]);
+
+  useEffect(() => {
+  if (!voteReceiptStorageKey) {
+    setVoteTxHash("");
+    return;
+  }
+
+  const savedTxHash =
+    window.localStorage.getItem(voteReceiptStorageKey) || "";
+
+  setVoteTxHash(savedTxHash);
+}, [voteReceiptStorageKey]);
 
   function select(proposalId, optionId) {
     setChoices((current) => current.map((choice, index) => (index === proposalId ? optionId : choice)));
@@ -509,8 +536,36 @@ function VotePage({ account, eligibility, config, onConnect, refresh, setOperati
       };
       const signature = await signTypedBallot(signerAccount, ballot.typedDataForWallet, walletProvider);
       setOperation({ kicker: "Ballot", title: "Submitting", progress: 80 });
-      const relay = await relayVote(signerAccount, numericChoices, signedMessage, signature);
-      setOperation({ kicker: "Ballot", title: "Submitted", tone: "success", progress: 100, txHash: relay.txHash });
+const relay = await relayVote(
+  signerAccount,
+  numericChoices,
+  signedMessage,
+  signature
+);
+
+if (!relay?.txHash) {
+  throw new Error(
+    "The vote was submitted, but no transaction hash was returned."
+  );
+}
+
+setVoteTxHash(relay.txHash);
+
+if (voteReceiptStorageKey) {
+  window.localStorage.setItem(
+    voteReceiptStorageKey,
+    relay.txHash
+  );
+}
+
+setOperation({
+  kicker: "Ballot",
+  title: "Submitted",
+  text: "Your vote was successfully recorded on Polygon.",
+  tone: "success",
+  progress: 100,
+  txHash: relay.txHash,
+});
       await refresh();
       window.setTimeout(() => setOperation(null), 1800);
     } catch (error) {
@@ -536,6 +591,30 @@ function VotePage({ account, eligibility, config, onConnect, refresh, setOperati
       <div className="submit-bar">
         <div><strong>{complete ? "Ready" : "Incomplete"}</strong></div>
         <button className="primary-button" disabled={!complete} onClick={submit}>Approve / sign ballot</button>
+        {voteTxHash && (
+  <div className="vote-verification-notice" role="status">
+    <span
+      className="vote-verification-icon"
+      aria-hidden="true"
+    >
+      i
+    </span>
+
+    <div className="vote-verification-content">
+      <span>Your vote has been submitted successfully.</span>
+
+      <a
+        href={voteTransactionUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="vote-verification-link"
+      >
+        Verify your vote submission on PolygonScan
+        <span aria-hidden="true"> ↗</span>
+      </a>
+    </div>
+  </div>
+)}
       </div>
     </div>
   );
