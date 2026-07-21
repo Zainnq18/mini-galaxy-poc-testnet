@@ -236,6 +236,9 @@ async function main() {
   const AccessList = await ethers.getContractFactory("AccessList");
   const accessList = await AccessList.deploy(deployer.address, { gasLimit: 4_500_000 });
   await accessList.waitForDeployment();
+  if ((await ethers.provider.getNetwork()).chainId !== 31337n) {
+  await accessList.deploymentTransaction().wait(3);
+}
 
   if (process.env.SKIP_DEFAULT_REGISTER !== "true" && DEFAULT_SHAREHOLDER_REGISTRY.length > 0) {
     const wallets = DEFAULT_SHAREHOLDER_REGISTRY.map((row) => row.wallet);
@@ -249,6 +252,9 @@ async function main() {
   const Token = await ethers.getContractFactory("CompanyToken");
   const token = await Token.deploy(event.tokenName, event.tokenSymbol, await accessList.getAddress(), deployer.address, { gasLimit: 5_500_000 });
   await token.waitForDeployment();
+  if ((await ethers.provider.getNetwork()).chainId !== 31337n) {
+  await token.deploymentTransaction().wait(3);
+}
 
   const Voting = await ethers.getContractFactory("ProxyVoting");
   const voting = await Voting.deploy(
@@ -264,6 +270,9 @@ async function main() {
     { gasLimit: 9_000_000 }
   );
   await voting.waitForDeployment();
+  if ((await ethers.provider.getNetwork()).chainId !== 31337n) {
+  await voting.deploymentTransaction().wait(3);
+}
 
   for (const proposal of event.proposals) {
     await (await voting.addProposal(proposal.question, proposal.options, { gasLimit: 3_000_000 })).wait();
