@@ -15,10 +15,8 @@ import {
   getAudit,
   getConfig,
   getEligibility,
-  getEvents,
   getParticipation,
   getResults,
-  getWalletEvents,
   importRegister,
   loginRole,
   relayDelegation,
@@ -33,7 +31,6 @@ import {
 } from "./services/wallet.js";
 
 const EMPTY_PROPOSAL = { question: "", options: ["For", "Against", "Abstain"] };
-const SELECTED_EVENT_KEY = "br_proxy_selected_event_v50";
 const ROLE_META = {
   issuer: ["Issuer", "/issuer"],
   transferAgent: ["Transfer Agent", "/transfer-agent"],
@@ -109,131 +106,6 @@ function DataRow({ label, value }) {
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
-  );
-}
-
-function eventTone(status) {
-  if (status === "open") return "success";
-  if (status === "pending") return "info";
-  if (status === "unavailable") return "danger";
-  return "neutral";
-}
-
-function eventStatusLabel(status) {
-  if (status === "open") return "Open";
-  if (status === "pending") return "Upcoming";
-  if (status === "closed") return "Closed";
-  if (status === "unavailable") return "Unavailable";
-  return "Unknown";
-}
-
-function eventName(item) {
-  const title = item?.event?.eventTitle || "Voting event";
-  const code = item?.event?.eventCode;
-  return code ? `${title} (${code})` : title;
-}
-
-function sameEventId(left, right) {
-  return Boolean(left && right && String(left).toLowerCase() === String(right).toLowerCase());
-}
-
-function EventSwitcher({ events, selectedEventId, onSelect, loading = false }) {
-  if (!events.length) return null;
-  const selected = events.find((item) => sameEventId(item.eventId, selectedEventId)) || events[0];
-
-  return (
-    <section className="event-switcher" aria-label="Voting event selector">
-      <div className="event-switcher-copy">
-        <span className="section-kicker">Active workspace</span>
-        <strong>{eventName(selected)}</strong>
-        <span>{selected?.event?.issuerName || "Select a voting event"}</span>
-      </div>
-
-      <div className="event-switcher-control">
-        <label htmlFor="voting-event-select">Voting event</label>
-        <select
-          id="voting-event-select"
-          value={selected?.eventId || selectedEventId || ""}
-          disabled={loading || !events.length}
-          onChange={(event) => onSelect(event.target.value)}
-        >
-          {events.map((item) => (
-            <option key={item.eventId} value={item.eventId}>
-              {eventName(item)} · {eventStatusLabel(item.status)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <StatusPill tone={eventTone(selected?.status)}>
-        {eventStatusLabel(selected?.status)}
-      </StatusPill>
-    </section>
-  );
-}
-
-function InvestorEventsPanel({ events, selectedEventId, onOpenEvent }) {
-  if (!events.length) return null;
-
-  return (
-    <section className="panel investor-events-panel">
-      <div className="panel-head">
-        <div>
-          <div className="section-kicker">My voting events</div>
-          <h2>Eligible and participated events</h2>
-        </div>
-        <StatusPill tone="info">{events.length}</StatusPill>
-      </div>
-
-      <div className="investor-event-grid">
-        {events.map((item) => {
-          const selected = sameEventId(item.eventId, selectedEventId);
-          const eligibility = item.eligibility || {};
-          const action = item.status === "closed"
-            ? "View results"
-            : eligibility.hasVoted
-              ? "View submission"
-              : eligibility.eligible
-                ? "Open ballot"
-                : "Open event";
-
-          return (
-            <article
-              className={`investor-event-card ${selected ? "selected" : ""}`}
-              key={item.eventId}
-            >
-              <div className="investor-event-card-head">
-                <div>
-                  <span>{item.event?.eventCode || "Event"}</span>
-                  <strong>{item.event?.eventTitle || "Voting event"}</strong>
-                </div>
-                <StatusPill tone={eventTone(item.status)}>
-                  {eventStatusLabel(item.status)}
-                </StatusPill>
-              </div>
-
-              <div className="investor-event-card-data">
-                <span>{eligibility.viewOnlyReason || "View-only"}</span>
-                <strong>
-                  {tokenLabel(
-                    eligibility.effectiveVotingPower,
-                    item.event?.tokenSymbol || eligibility.tokenSymbol
-                  )}
-                </strong>
-              </div>
-
-              <button
-                type="button"
-                className={eligibility.eligible || eligibility.hasVoted ? "primary-button" : "secondary-button"}
-                onClick={() => onOpenEvent(item)}
-              >
-                {action}
-              </button>
-            </article>
-          );
-        })}
-      </div>
-    </section>
   );
 }
 
@@ -426,21 +298,16 @@ function EventSummary({ config }) {
     return (
       <section className="panel empty-state">
         <div className="empty-icon">—</div>
-        <h1>No voting event selected</h1>
+        <h1>No active voting event</h1>
       </section>
     );
   }
-
   const symbol = config.event.tokenSymbol;
-  const status = config.status || (config.voting.resultsAvailable ? "closed" : "open");
   return (
     <section className="panel">
       <div className="panel-head">
-        <div className="panel-head-main">
-          <span className="panel-icon" aria-hidden="true"><ShieldIcon size={18} /></span>
-          <div><div className="section-kicker">Voting event</div><h2>{config.event.eventTitle}</h2></div>
-        </div>
-        <StatusPill tone={eventTone(status)}>{eventStatusLabel(status)}</StatusPill>
+        <div className="panel-head-main"><span className="panel-icon" aria-hidden="true"><ShieldIcon size={18} /></span><div><div className="section-kicker">Voting event</div><h2>{config.event.eventTitle}</h2></div></div>
+        <StatusPill tone={config.voting.resultsAvailable ? "success" : "info"}>{config.voting.resultsAvailable ? "Closed" : "Open"}</StatusPill>
       </div>
       <div className="data-list">
         <DataRow label="Issuer" value={config.event.issuerName} />
@@ -489,16 +356,11 @@ function WalletPanel({ account, eligibility, config, onConnect, onVote, onAddTok
   );
 }
 
-function DelegatePanel({ account, eligibility, config, eventId, refresh, walletProvider, setOperation }) {
+function DelegatePanel({ account, eligibility, config, refresh, walletProvider, setOperation }) {
   const [delegatee, setDelegatee] = useState("");
   const symbol = config?.event?.tokenSymbol || eligibility?.tokenSymbol || "";
-  useEffect(() => {
-    setDelegatee("");
-  }, [eventId]);
-
   const canDelegate = Boolean(
     account &&
-    eventId &&
     eligibility?.snapshotCreated &&
     Number(eligibility?.snapshotBalance || 0) > 0 &&
     !eligibility?.hasVoted &&
@@ -510,10 +372,10 @@ function DelegatePanel({ account, eligibility, config, eventId, refresh, walletP
     try {
       setOperation({ kicker: "Delegation", title: "Awaiting signature", progress: 35 });
       await ensureHardhatNetwork(walletProvider);
-      const payload = await buildDelegation(account, delegatee, eventId);
+      const payload = await buildDelegation(account, delegatee);
       const signature = await signTypedBallot(account, payload.typedDataForWallet, walletProvider);
       setOperation({ kicker: "Delegation", title: "Recording", progress: 75 });
-      const relay = await relayDelegation(account, delegatee, payload.message, signature, eventId);
+      const relay = await relayDelegation(account, delegatee, payload.message, signature);
       setOperation({ kicker: "Delegation", title: "Delegated", tone: "success", progress: 100, txHash: relay.txHash });
       setDelegatee("");
       await refresh();
@@ -543,35 +405,12 @@ function DelegatePanel({ account, eligibility, config, eventId, refresh, walletP
   );
 }
 
-function InvestorPortal({
-  account,
-  eligibility,
-  config,
-  eventId,
-  walletEvents,
-  onSelectEvent,
-  onConnect,
-  refresh,
-  walletProvider,
-  setOperation
-}) {
+function InvestorPortal({ account, eligibility, config, onConnect, refresh, walletProvider, setOperation }) {
   const navigate = useNavigate();
-
   async function addToken() {
     if (!eligibility?.tokenAddress) return;
-    await watchAsset(
-      { address: eligibility.tokenAddress, symbol: eligibility.tokenSymbol, decimals: 18 },
-      walletProvider
-    ).catch(() => undefined);
+    await watchAsset({ address: eligibility.tokenAddress, symbol: eligibility.tokenSymbol, decimals: 18 }, walletProvider).catch(() => undefined);
   }
-
-  function openWalletEvent(item) {
-    onSelectEvent(item.eventId);
-    if (item.status === "closed") navigate("/results");
-    else if (item.eligibility?.eligible || item.eligibility?.hasVoted) navigate("/vote");
-    else navigate("/");
-  }
-
   return (
     <div className="page-stack home-stack">
       <section className="home-welcome">
@@ -581,22 +420,13 @@ function InvestorPortal({
           <button className="secondary-button" onClick={() => navigate("/results")}>Results</button>
         </div>
       </section>
-
-      {account && (
-        <InvestorEventsPanel
-          events={walletEvents}
-          selectedEventId={eventId}
-          onOpenEvent={openWalletEvent}
-        />
-      )}
-
       {config?.deployed && (
         <div className="split-grid dashboard-grid">
           <EventSummary config={config} />
           <WalletPanel account={account} eligibility={eligibility} config={config} onConnect={onConnect} onVote={() => navigate("/vote")} onAddToken={addToken} refresh={refresh} />
         </div>
       )}
-      {config?.deployed && <DelegatePanel account={account} eligibility={eligibility} config={config} eventId={eventId} refresh={refresh} walletProvider={walletProvider} setOperation={setOperation} />}
+      {config?.deployed && <DelegatePanel account={account} eligibility={eligibility} config={config} refresh={refresh} walletProvider={walletProvider} setOperation={setOperation} />}
       {!config?.deployed && <EventSummary config={config} />}
     </div>
   );
@@ -646,7 +476,7 @@ function ProposalBlock({ proposal, choice, onChange, locked }) {
   );
 }
 
-function VotePage({ account, eligibility, config, eventId, onConnect, refresh, setOperation, walletProvider }) {
+function VotePage({ account, eligibility, config, onConnect, refresh, setOperation, walletProvider }) {
   const navigate = useNavigate();
   const proposals = config?.proposals || [];
   const [choices, setChoices] = useState([]);
@@ -682,11 +512,6 @@ const votingHasEnded =
   (votingEndTimestamp > 0 &&
     currentTimestamp >= votingEndTimestamp);
 
-const recordedVoteTxHash =
-  sameEventId(eligibility?.eventId, eventId)
-    ? eligibility?.voteTxHash || ""
-    : "";
-
 const showVoteVerification = Boolean(
   voteTxHash &&
   !votingHasEnded
@@ -694,7 +519,7 @@ const showVoteVerification = Boolean(
 
   useEffect(() => {
     setChoices(proposals.map(() => null));
-  }, [config?.eventId, proposals.length]);
+  }, [proposals.length]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -717,16 +542,10 @@ const showVoteVerification = Boolean(
     }
 
     const savedTxHash =
-      recordedVoteTxHash ||
-      window.localStorage.getItem(voteReceiptStorageKey) ||
-      "";
-
-    if (recordedVoteTxHash) {
-      window.localStorage.setItem(voteReceiptStorageKey, recordedVoteTxHash);
-    }
+      window.localStorage.getItem(voteReceiptStorageKey) || "";
 
     setVoteTxHash(savedTxHash);
-  }, [recordedVoteTxHash, voteReceiptStorageKey, votingHasEnded]);
+  }, [voteReceiptStorageKey, votingHasEnded]);
 
   function select(proposalId, optionId) {
     setChoices((current) => current.map((choice, index) => (index === proposalId ? optionId : choice)));
@@ -740,7 +559,7 @@ const showVoteVerification = Boolean(
       const signerAccount = await activeWalletAccount(walletProvider);
       if (!signerAccount) throw new Error("No active wallet account found. Reconnect your wallet and try again.");
 
-      const ballot = await buildBallot(signerAccount, numericChoices, eventId);
+      const ballot = await buildBallot(signerAccount, numericChoices);
       const signedMessage = {
         ...ballot.message,
         ...ballot.typedDataForWallet.message,
@@ -752,8 +571,7 @@ const relay = await relayVote(
   signerAccount,
   numericChoices,
   signedMessage,
-  signature,
-  eventId
+  signature
 );
 
 if (!relay?.txHash) {
@@ -890,31 +708,14 @@ function ResultGraphic({ proposal, symbol }) {
   );
 }
 
-function ResultsPage({ config, eventId }) {
+function ResultsPage({ config }) {
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const symbol = config?.event?.tokenSymbol || "";
-
   const load = useCallback(async () => {
-    if (!eventId) {
-      setResults(null);
-      return;
-    }
-    try {
-      setError(null);
-      setResults(await getResults(eventId));
-    } catch (loadError) {
-      setError(loadError.message);
-    }
-  }, [eventId]);
-
-  useEffect(() => {
-    setResults(null);
-    load();
-    const id = window.setInterval(load, 5000);
-    return () => window.clearInterval(id);
-  }, [load]);
-
+    try { setError(null); setResults(await getResults()); } catch (loadError) { setError(loadError.message); }
+  }, []);
+  useEffect(() => { load(); const id = window.setInterval(load, 5000); return () => window.clearInterval(id); }, [load]);
   if (!config?.deployed) return <EventSummary config={config} />;
   if (error) return <div className="notice danger">{error}</div>;
   if (!results?.available) return <section className="panel empty-state"><div className="empty-icon">LOCK</div><h1>Results locked</h1></section>;
@@ -931,13 +732,12 @@ function ResultsPage({ config, eventId }) {
   );
 }
 
-function EventSetupForm({ config, refresh, onEventCreated, setOperation }) {
+function EventSetupForm({ config, refresh, setOperation }) {
   const defaultStart = inputFromUnix(Math.floor(Date.now() / 1000) + 60);
   const defaultEnd = inputFromUnix(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
   const [form, setForm] = useState({ issuerName: "", eventTitle: "", eventCode: "", tokenName: "", tokenSymbol: "", votingStart: defaultStart, votingEnd: defaultEnd, quorumBps: "5000" });
   const [proposal, setProposal] = useState(EMPTY_PROPOSAL);
   const [proposals, setProposals] = useState([]);
-  const [deploying, setDeploying] = useState(false);
 
   function update(key, value) { setForm((current) => ({ ...current, [key]: value })); }
   function updateOption(index, value) { setProposal((current) => ({ ...current, options: current.options.map((option, i) => i === index ? value : option) })); }
@@ -948,22 +748,16 @@ function EventSetupForm({ config, refresh, onEventCreated, setOperation }) {
     setProposal(EMPTY_PROPOSAL);
   }
   async function deploy() {
-    if (deploying) return;
-    setDeploying(true);
     try {
       setOperation({ kicker: "Deployment", title: "Deploying", progress: 25 });
       const payload = { ...form, votingStartTimestamp: unixFromInput(form.votingStart), votingEndTimestamp: unixFromInput(form.votingEnd), proposals };
-      const response = await deployContracts("admin", payload);
-      const createdEventId = response.eventId || response.deployment?.eventId || response.deployment?.contracts?.voting;
+      await deployContracts("admin", payload);
       setOperation({ kicker: "Deployment", title: "Deployed", tone: "success", progress: 100 });
-      if (createdEventId) await onEventCreated(createdEventId);
-      else await refresh();
+      await refresh();
       window.setTimeout(() => setOperation(null), 1800);
     } catch (error) {
       setOperation({ kicker: "Deployment", title: "Failed", text: error.message, tone: "danger" });
       window.setTimeout(() => setOperation(null), 3500);
-    } finally {
-      setDeploying(false);
     }
   }
   return (
@@ -987,172 +781,43 @@ function EventSetupForm({ config, refresh, onEventCreated, setOperation }) {
         <div className="portal-actions"><button className="secondary-button" onClick={() => setProposal((current) => ({ ...current, options: [...current.options, ""] }))}>Add option</button><button className="secondary-button" onClick={addProposal}>Add proposal</button></div>
       </div>
       <div className="portal-table-wrap mini"><table className="portal-table"><thead><tr><th>#</th><th>Proposal</th><th>Options</th><th></th></tr></thead><tbody>{proposals.map((item, index) => <tr key={`${item.question}-${index}`}><td>{index + 1}</td><td>{item.question}</td><td>{item.options.join(" / ")}</td><td><button className="secondary-button small" onClick={() => setProposals((current) => current.filter((_, i) => i !== index))}>Remove</button></td></tr>)}{!proposals.length && <tr><td colSpan="4">No proposals</td></tr>}</tbody></table></div>
-      <div className="portal-actions"><button className="primary-button" disabled={deploying || !proposals.length} onClick={deploy}>{deploying ? "Deploying…" : "Deploy event"}</button></div>
+      <div className="portal-actions"><button className="primary-button" disabled={!proposals.length} onClick={deploy}>Deploy event</button></div>
     </section>
   );
 }
 
-function AdminPage({ config, refresh, onEventCreated, setOperation }) {
-  return <RoleGate role="admin"><EventSetupForm config={config} refresh={refresh} onEventCreated={onEventCreated} setOperation={setOperation} /></RoleGate>;
+function AdminPage({ config, refresh, setOperation }) {
+  return <RoleGate role="admin"><EventSetupForm config={config} refresh={refresh} setOperation={setOperation} /></RoleGate>;
 }
 
-function IssuerPage({ config, eventId, refresh, setOperation }) {
+function IssuerPage({ config, refresh, setOperation }) {
   async function closeEvent() {
-    try {
-      setOperation({ kicker: "Issuer", title: "Closing event", progress: 70 });
-      const response = await endVotingNow("issuer", eventId);
-      setOperation({ kicker: "Issuer", title: "Closed", tone: "success", progress: 100, txHash: response.txHash });
-      await refresh();
-      window.setTimeout(() => setOperation(null), 1800);
-    } catch (error) {
-      setOperation({ kicker: "Issuer", title: "Failed", text: error.message, tone: "danger" });
-      window.setTimeout(() => setOperation(null), 2600);
-    }
+    try { setOperation({ kicker: "Issuer", title: "Closing event", progress: 70 }); const r = await endVotingNow("issuer"); setOperation({ kicker: "Issuer", title: "Closed", tone: "success", progress: 100, txHash: r.txHash }); await refresh(); window.setTimeout(() => setOperation(null), 1800); }
+    catch (error) { setOperation({ kicker: "Issuer", title: "Failed", text: error.message, tone: "danger" }); window.setTimeout(() => setOperation(null), 2600); }
   }
-
-  return (
-    <RoleGate role="issuer">
-      <EventSummary config={config} />
-      <section className="admin-actions">
-        <button
-          className="admin-action primary-admin"
-          disabled={!eventId || !config?.deployed || config?.voting?.resultsAvailable}
-          onClick={closeEvent}
-        >
-          <span className="admin-action-icon"><ClockIcon size={18} /></span>
-          <strong>Close voting</strong>
-        </button>
-      </section>
-    </RoleGate>
-  );
+  return <RoleGate role="issuer"><EventSummary config={config} /><section className="admin-actions"><button className="admin-action primary-admin" onClick={closeEvent}><span className="admin-action-icon"><ClockIcon size={18} /></span><strong>Close voting</strong></button></section></RoleGate>;
 }
 
-function TransferAgentPage({ config, eventId, refresh, setOperation }) {
+function TransferAgentPage({ config, refresh, setOperation }) {
   const [csv, setCsv] = useState(DEFAULT_REGISTER_CSV);
   const symbol = config?.event?.tokenSymbol || "";
-
-  async function run(title, action) {
-    try {
-      setOperation({ kicker: "Transfer Agent", title, progress: 65 });
-      const response = await action();
-      setOperation({ kicker: "Transfer Agent", title: "Complete", tone: "success", progress: 100, txHash: response.txHash });
-      await refresh();
-      window.setTimeout(() => setOperation(null), 1600);
-    } catch (error) {
-      setOperation({ kicker: "Transfer Agent", title: "Failed", text: error.message, tone: "danger" });
-      window.setTimeout(() => setOperation(null), 3000);
-    }
-  }
-
-  return (
-    <RoleGate role="transferAgent">
-      <div className="page-stack">
-        <section className="panel">
-          <div className="panel-head"><div><div className="section-kicker">Register</div><h2>Shareholder register</h2></div></div>
-          <textarea className="csv-input" value={csv} onChange={(event) => setCsv(event.target.value)} />
-          <div className="portal-actions">
-            <button className="primary-button" disabled={!eventId || !csv.trim() || config?.tokenSnapshot?.created} onClick={() => run("Importing", () => importRegister("transferAgent", csv, eventId))}>Import register</button>
-            <button className="secondary-button" disabled={!eventId || !config?.deployed || config?.tokenSnapshot?.created} onClick={() => run("Finalizing", () => createSnapshot("transferAgent", eventId))}>Finalize record date</button>
-            <button className="secondary-button" type="button" onClick={() => setCsv(DEFAULT_REGISTER_CSV)}>Reset defaults</button>
-          </div>
-        </section>
-        <RegisterTable rows={config?.shareholderRegister || []} symbol={symbol} />
-      </div>
-    </RoleGate>
-  );
+  async function run(title, action) { try { setOperation({ kicker: "Transfer Agent", title, progress: 65 }); const r = await action(); setOperation({ kicker: "Transfer Agent", title: "Complete", tone: "success", progress: 100, txHash: r.txHash }); await refresh(); window.setTimeout(() => setOperation(null), 1600); } catch (error) { setOperation({ kicker: "Transfer Agent", title: "Failed", text: error.message, tone: "danger" }); window.setTimeout(() => setOperation(null), 3000); } }
+  return <RoleGate role="transferAgent"><div className="page-stack"><section className="panel"><div className="panel-head"><div><div className="section-kicker">Register</div><h2>Shareholder register</h2></div></div><textarea className="csv-input" value={csv} onChange={(e) => setCsv(e.target.value)} /><div className="portal-actions"><button className="primary-button" disabled={!csv.trim() || config?.tokenSnapshot?.created} onClick={() => run("Importing", () => importRegister("transferAgent", csv))}>Import register</button><button className="secondary-button" disabled={!config?.deployed || config?.tokenSnapshot?.created} onClick={() => run("Finalizing", () => createSnapshot("transferAgent"))}>Finalize record date</button><button className="secondary-button" type="button" onClick={() => setCsv(DEFAULT_REGISTER_CSV)}>Reset defaults</button></div></section><RegisterTable rows={config?.shareholderRegister || []} symbol={symbol} /></div></RoleGate>;
 }
 
-function InspectorPage({ config, eventId, setOperation }) {
+function InspectorPage({ config, setOperation }) {
   const [audit, setAudit] = useState(config);
-
-  useEffect(() => {
-    setAudit(config);
-  }, [config?.eventId, config?.latestBlock?.number]);
-
-  async function refreshAudit() {
-    try {
-      const response = await getAudit("inspector", eventId);
-      setAudit(response.audit);
-    } catch (error) {
-      setOperation({ kicker: "Inspector", title: "Failed", text: error.message, tone: "danger" });
-      window.setTimeout(() => setOperation(null), 2500);
-    }
-  }
-
-  async function exportAudit() {
-    try {
-      const response = await exportState("inspector", eventId);
-      const blob = new Blob([JSON.stringify(response.payload, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = response.fileName;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setOperation({ kicker: "Inspector", title: "Failed", text: error.message, tone: "danger" });
-      window.setTimeout(() => setOperation(null), 2500);
-    }
-  }
-
-  const current = audit || config;
-  return (
-    <RoleGate role="inspector">
-      <section className="panel">
-        <div className="panel-head">
-          <div><div className="section-kicker">Audit</div><h2>Vote integrity</h2></div>
-          <div className="portal-actions">
-            <button className="secondary-button" disabled={!eventId} onClick={refreshAudit}>Refresh</button>
-            <button className="primary-button" disabled={!eventId} onClick={exportAudit}>Export</button>
-          </div>
-        </div>
-        <div className="data-list four">
-          <DataRow label="Snapshot supply" value={tokenLabel(current?.tokenSnapshot?.totalSnapshotSupply, current?.event?.tokenSymbol)} />
-          <DataRow label="Power cast" value={tokenLabel(current?.voting?.totalVotingPowerCast, current?.event?.tokenSymbol)} />
-          <DataRow label="Ballots" value={current?.voting?.totalBallots || 0} />
-          <DataRow label="Quorum" value={current?.voting?.quorumAchieved ? "Achieved" : "Pending"} />
-        </div>
-      </section>
-      <RegisterTable rows={current?.shareholderRegister || []} symbol={current?.event?.tokenSymbol} />
-    </RoleGate>
-  );
+  async function refreshAudit() { try { const r = await getAudit("inspector"); setAudit(r.audit); } catch (error) { setOperation({ kicker: "Inspector", title: "Failed", text: error.message, tone: "danger" }); window.setTimeout(() => setOperation(null), 2500); } }
+  async function exportAudit() { try { const r = await exportState("inspector"); const blob = new Blob([JSON.stringify(r.payload, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = r.fileName; a.click(); URL.revokeObjectURL(url); } catch (error) { setOperation({ kicker: "Inspector", title: "Failed", text: error.message, tone: "danger" }); window.setTimeout(() => setOperation(null), 2500); } }
+  const c = audit || config;
+  return <RoleGate role="inspector"><section className="panel"><div className="panel-head"><div><div className="section-kicker">Audit</div><h2>Vote integrity</h2></div><div className="portal-actions"><button className="secondary-button" onClick={refreshAudit}>Refresh</button><button className="primary-button" onClick={exportAudit}>Export</button></div></div><div className="data-list four"><DataRow label="Snapshot supply" value={tokenLabel(c?.tokenSnapshot?.totalSnapshotSupply, c?.event?.tokenSymbol)} /><DataRow label="Power cast" value={tokenLabel(c?.voting?.totalVotingPowerCast, c?.event?.tokenSymbol)} /><DataRow label="Ballots" value={c?.voting?.totalBallots || 0} /><DataRow label="Quorum" value={c?.voting?.quorumAchieved ? "Achieved" : "Pending"} /></div></section><RegisterTable rows={c?.shareholderRegister || []} symbol={c?.event?.tokenSymbol} /></RoleGate>;
 }
 
-function SolicitorPage({ config, eventId, setOperation }) {
+function SolicitorPage({ config, setOperation }) {
   const [data, setData] = useState(null);
-
-  useEffect(() => {
-    setData(null);
-  }, [eventId]);
-
-  async function refreshParticipation() {
-    try {
-      setData(await getParticipation("solicitor", eventId));
-    } catch (error) {
-      setOperation({ kicker: "Solicitor", title: "Failed", text: error.message, tone: "danger" });
-      window.setTimeout(() => setOperation(null), 2500);
-    }
-  }
-
+  async function refreshParticipation() { try { setData(await getParticipation("solicitor")); } catch (error) { setOperation({ kicker: "Solicitor", title: "Failed", text: error.message, tone: "danger" }); window.setTimeout(() => setOperation(null), 2500); } }
   const pct = data?.participationPct || 0;
-  return (
-    <RoleGate role="solicitor">
-      <section className="panel">
-        <div className="panel-head">
-          <div><div className="section-kicker">Participation</div><h2>Voting progress</h2></div>
-          <button className="primary-button" disabled={!eventId} onClick={refreshParticipation}>Refresh</button>
-        </div>
-        <div className="bar-track"><div className="bar-fill" style={{ width: `${Math.min(100, pct)}%` }} /></div>
-        <div className="data-list four">
-          <DataRow label="Participation" value={percent(pct)} />
-          <DataRow label="Quorum" value={data?.quorumAchieved ? "Achieved" : "Pending"} />
-          <DataRow label="Voted" value={data?.voted || 0} />
-          <DataRow label="Pending" value={data?.pending || 0} />
-        </div>
-      </section>
-      <RegisterTable rows={data?.rows || config?.shareholderRegister || []} symbol={config?.event?.tokenSymbol} />
-    </RoleGate>
-  );
+  return <RoleGate role="solicitor"><section className="panel"><div className="panel-head"><div><div className="section-kicker">Participation</div><h2>Voting progress</h2></div><button className="primary-button" onClick={refreshParticipation}>Refresh</button></div><div className="bar-track"><div className="bar-fill" style={{ width: `${Math.min(100, pct)}%` }} /></div><div className="data-list four"><DataRow label="Participation" value={percent(pct)} /><DataRow label="Quorum" value={data?.quorumAchieved ? "Achieved" : "Pending"} /><DataRow label="Voted" value={data?.voted || 0} /><DataRow label="Pending" value={data?.pending || 0} /></div></section><RegisterTable rows={data?.rows || config?.shareholderRegister || []} symbol={config?.event?.tokenSymbol} /></RoleGate>;
 }
 
 export default function App() {
@@ -1165,116 +830,41 @@ export default function App() {
   const appKitAccount = isConnected && address ? address : null;
   const [providerAccount, setProviderAccount] = useState(null);
   const account = providerAccount || appKitAccount;
-  const accountRef = useRef(account);
   const connectRequestedRef = useRef(false);
-
-  const [events, setEvents] = useState([]);
-  const [walletEvents, setWalletEvents] = useState([]);
-  const [eventsLoading, setEventsLoading] = useState(false);
-  const [selectedEventId, setSelectedEventId] = useState(() =>
-    window.localStorage.getItem(SELECTED_EVENT_KEY) || null
-  );
-  const selectedEventRef = useRef(selectedEventId);
 
   const [config, setConfig] = useState(null);
   const [eligibility, setEligibility] = useState(null);
   const [operation, setOperation] = useState(null);
 
-  useEffect(() => {
-    accountRef.current = account;
-  }, [account]);
-
-  const selectEvent = useCallback((eventId) => {
-    const next = eventId || null;
-    selectedEventRef.current = next;
-    setSelectedEventId(next);
-    setConfig(null);
-    setEligibility(null);
-    if (next) window.localStorage.setItem(SELECTED_EVENT_KEY, next);
-    else window.localStorage.removeItem(SELECTED_EVENT_KEY);
+  const refreshConfig = useCallback(async () => {
+    const c = await getConfig();
+    setConfig(c);
+    return c;
   }, []);
-
-  const refreshEvents = useCallback(async ({ preferredEventId = null } = {}) => {
-    setEventsLoading(true);
-    try {
-      const response = await getEvents();
-      const nextEvents = (response.events || []).filter((item) => item?.eventId);
-      setEvents(nextEvents);
-
-      const requested = preferredEventId || selectedEventRef.current;
-      const requestedExists = requested && nextEvents.some((item) => sameEventId(item.eventId, requested));
-      const fallback =
-        nextEvents.find((item) => item.status === "open") ||
-        nextEvents.find((item) => item.status === "pending") ||
-        nextEvents[0] ||
-        null;
-      const nextId = requestedExists ? requested : fallback?.eventId || null;
-
-      if (!sameEventId(nextId, selectedEventRef.current)) selectEvent(nextId);
-      return { events: nextEvents, selectedEventId: nextId };
-    } finally {
-      setEventsLoading(false);
-    }
-  }, [selectEvent]);
-
-  const loadSelectedEvent = useCallback(async (eventId = selectedEventRef.current) => {
-    if (!eventId) {
-      setConfig(null);
-      setEligibility(null);
-      return null;
-    }
-
-    const addressAtStart = accountRef.current;
-    const [nextConfig, nextEligibility] = await Promise.all([
-      getConfig(eventId),
-      addressAtStart ? getEligibility(addressAtStart, eventId) : Promise.resolve(null)
-    ]);
-
-    if (sameEventId(selectedEventRef.current, eventId)) {
-      setConfig(nextConfig);
-      if (accountRef.current === addressAtStart) setEligibility(nextEligibility);
-    }
-    return nextConfig;
-  }, []);
-
-  const loadWalletPortfolio = useCallback(async (addressValue = accountRef.current) => {
-    if (!addressValue) {
-      setWalletEvents([]);
-      return [];
-    }
-
-    const response = await getWalletEvents(addressValue);
-    if (accountRef.current === addressValue) setWalletEvents(response.events || []);
-    return response.events || [];
-  }, []);
-
-  const refresh = useCallback(async () => {
-    const currentEventId = selectedEventRef.current;
-    const tasks = [refreshEvents(), currentEventId ? loadSelectedEvent(currentEventId) : Promise.resolve(null)];
-    if (accountRef.current) tasks.push(loadWalletPortfolio(accountRef.current));
-    const results = await Promise.all(tasks);
-    return results[1];
-  }, [loadSelectedEvent, loadWalletPortfolio, refreshEvents]);
-
-  const handleEventCreated = useCallback(async (eventId) => {
-    selectEvent(eventId);
-    await refreshEvents({ preferredEventId: eventId });
-    await loadSelectedEvent(eventId);
-    if (accountRef.current) await loadWalletPortfolio(accountRef.current);
-  }, [loadSelectedEvent, loadWalletPortfolio, refreshEvents, selectEvent]);
 
   const tokenImportAttemptedRef = useRef(new Set());
 
-  const promptTokenImport = useCallback(async (entry, { force = false } = {}) => {
-    if (!accountRef.current || !entry?.hasTokenEntitlement || !entry?.tokenAddress || !walletProvider) return;
-    const key = tokenPromptKey(accountRef.current, entry);
+  const promptTokenImport = useCallback(async (e, { force = false } = {}) => {
+    if (!account || !e?.hasTokenEntitlement || !e?.tokenAddress || !walletProvider) return;
+    const key = tokenPromptKey(account, e);
     if (!force && key && (tokenImportAttemptedRef.current.has(key) || window.localStorage.getItem(key))) return;
     if (key) {
       tokenImportAttemptedRef.current.add(key);
       window.localStorage.setItem(key, "1");
     }
-    await watchAsset({ address: entry.tokenAddress, symbol: entry.tokenSymbol, decimals: 18 }, walletProvider).catch(() => undefined);
-  }, [walletProvider]);
+    await watchAsset({ address: e.tokenAddress, symbol: e.tokenSymbol, decimals: 18 }, walletProvider).catch(() => undefined);
+  }, [account, walletProvider]);
+
+  const refresh = useCallback(async () => {
+    const c = await refreshConfig();
+    if (account) {
+      const e = await getEligibility(account);
+      setEligibility(e);
+    } else {
+      setEligibility(null);
+    }
+    return c;
+  }, [account, promptTokenImport, refreshConfig]);
 
   async function handleConnect() {
     try {
@@ -1292,36 +882,6 @@ export default function App() {
       window.setTimeout(() => setOperation(null), 2600);
     }
   }
-
-  useEffect(() => {
-    refreshEvents().catch((error) => {
-      setOperation({ kicker: "Events", title: "Load failed", text: error.message, tone: "danger" });
-      window.setTimeout(() => setOperation(null), 3000);
-    });
-  }, [refreshEvents]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      refreshEvents().catch(() => undefined);
-      if (accountRef.current) loadWalletPortfolio(accountRef.current).catch(() => undefined);
-    }, 30000);
-
-    return () => window.clearInterval(timer);
-  }, [loadWalletPortfolio, refreshEvents]);
-
-  useEffect(() => {
-    if (!selectedEventId) {
-      setConfig(null);
-      setEligibility(null);
-      return;
-    }
-
-    loadSelectedEvent(selectedEventId).catch((error) => {
-      if (selectedEventRef.current !== selectedEventId) return;
-      setOperation({ kicker: "Event", title: "Load failed", text: error.message, tone: "danger" });
-      window.setTimeout(() => setOperation(null), 3000);
-    });
-  }, [account, selectedEventId, loadSelectedEvent]);
 
   useEffect(() => {
     if (!walletProvider) {
@@ -1346,13 +906,12 @@ export default function App() {
       const nextAccount = accounts?.[0] || null;
       setProviderAccount(nextAccount);
       setEligibility(null);
-      setWalletEvents([]);
       connectRequestedRef.current = Boolean(nextAccount);
     }
 
     function handleChainChanged() {
       syncProviderAccount();
-      refresh().catch(() => undefined);
+      refreshConfig().catch(() => undefined);
     }
 
     walletProvider?.on?.("accountsChanged", handleAccountsChanged);
@@ -1363,12 +922,15 @@ export default function App() {
       walletProvider?.removeListener?.("accountsChanged", handleAccountsChanged);
       walletProvider?.removeListener?.("chainChanged", handleChainChanged);
     };
-  }, [walletProvider, refresh]);
+  }, [walletProvider, refreshConfig]);
+
+  useEffect(() => {
+    refreshConfig().catch(() => undefined);
+  }, [refreshConfig]);
 
   useEffect(() => {
     if (!account) {
       setEligibility(null);
-      setWalletEvents([]);
       return undefined;
     }
 
@@ -1377,24 +939,13 @@ export default function App() {
     async function loadConnectedWallet() {
       try {
         if (walletProvider) await ensureHardhatNetwork(walletProvider);
-        const portfolio = await loadWalletPortfolio(account);
+        const e = await getEligibility(account);
         if (cancelled) return;
-
-        const selectedIsRelevant = portfolio.some((item) =>
-          sameEventId(item.eventId, selectedEventRef.current)
-        );
-        const preferred =
-          portfolio.find((item) => item.status === "open" && item.eligibility?.eligible) ||
-          portfolio.find((item) => item.status === "open") ||
-          portfolio.find((item) => item.status === "pending") ||
-          portfolio[0];
-
-        if (
-          preferred &&
-          (connectRequestedRef.current || !selectedEventRef.current || !selectedIsRelevant) &&
-          !sameEventId(preferred.eventId, selectedEventRef.current)
-        ) {
-          selectEvent(preferred.eventId);
+        setEligibility(e);
+        if (connectRequestedRef.current) {
+          await promptTokenImport(e);
+          connectRequestedRef.current = false;
+          navigate("/");
         }
       } catch (error) {
         if (!cancelled) {
@@ -1406,20 +957,11 @@ export default function App() {
     }
 
     loadConnectedWallet();
+
     return () => {
       cancelled = true;
     };
-  }, [account, walletProvider, loadWalletPortfolio, selectEvent]);
-
-  useEffect(() => {
-    if (!account || !eligibility || !sameEventId(eligibility.eventId, selectedEventId)) return;
-    if (!connectRequestedRef.current) return;
-
-    promptTokenImport(eligibility).finally(() => {
-      connectRequestedRef.current = false;
-      navigate("/");
-    });
-  }, [account, eligibility, navigate, promptTokenImport, selectedEventId]);
+  }, [account, walletProvider, config?.latestBlock?.number, navigate, promptTokenImport]);
 
   async function handleDisconnect() {
     try {
@@ -1429,7 +971,6 @@ export default function App() {
     }
     setProviderAccount(null);
     setEligibility(null);
-    setWalletEvents([]);
     connectRequestedRef.current = false;
     navigate("/");
   }
@@ -1437,22 +978,16 @@ export default function App() {
   return (
     <Shell config={config} account={account} eligibility={eligibility} onConnect={handleConnect} onDisconnect={handleDisconnect}>
       <OperationModal operation={operation} />
-      <EventSwitcher
-        events={events}
-        selectedEventId={selectedEventId}
-        onSelect={selectEvent}
-        loading={eventsLoading || Boolean(operation)}
-      />
       <Routes>
-        <Route path="/" element={<InvestorPortal account={account} eligibility={eligibility} config={config} eventId={selectedEventId} walletEvents={walletEvents} onSelectEvent={selectEvent} onConnect={handleConnect} refresh={refresh} walletProvider={walletProvider} setOperation={setOperation} />} />
-        <Route path="/investor" element={<InvestorPortal account={account} eligibility={eligibility} config={config} eventId={selectedEventId} walletEvents={walletEvents} onSelectEvent={selectEvent} onConnect={handleConnect} refresh={refresh} walletProvider={walletProvider} setOperation={setOperation} />} />
-        <Route path="/vote" element={<VotePage account={account} eligibility={eligibility} config={config} eventId={selectedEventId} onConnect={handleConnect} refresh={refresh} setOperation={setOperation} walletProvider={walletProvider} />} />
-        <Route path="/results" element={<ResultsPage config={config} eventId={selectedEventId} />} />
-        <Route path="/admin" element={<AdminPage config={config} refresh={refresh} onEventCreated={handleEventCreated} setOperation={setOperation} />} />
-        <Route path="/issuer" element={<IssuerPage config={config} eventId={selectedEventId} refresh={refresh} setOperation={setOperation} />} />
-        <Route path="/transfer-agent" element={<TransferAgentPage config={config} eventId={selectedEventId} refresh={refresh} setOperation={setOperation} />} />
-        <Route path="/inspector" element={<InspectorPage config={config} eventId={selectedEventId} setOperation={setOperation} />} />
-        <Route path="/proxy-solicitor" element={<SolicitorPage config={config} eventId={selectedEventId} setOperation={setOperation} />} />
+        <Route path="/" element={<InvestorPortal account={account} eligibility={eligibility} config={config} onConnect={handleConnect} refresh={refresh} walletProvider={walletProvider} setOperation={setOperation} />} />
+        <Route path="/investor" element={<InvestorPortal account={account} eligibility={eligibility} config={config} onConnect={handleConnect} refresh={refresh} walletProvider={walletProvider} setOperation={setOperation} />} />
+        <Route path="/vote" element={<VotePage account={account} eligibility={eligibility} config={config} onConnect={handleConnect} refresh={refresh} setOperation={setOperation} walletProvider={walletProvider} />} />
+        <Route path="/results" element={<ResultsPage config={config} />} />
+        <Route path="/admin" element={<AdminPage config={config} refresh={refresh} setOperation={setOperation} />} />
+        <Route path="/issuer" element={<IssuerPage config={config} refresh={refresh} setOperation={setOperation} />} />
+        <Route path="/transfer-agent" element={<TransferAgentPage config={config} refresh={refresh} setOperation={setOperation} />} />
+        <Route path="/inspector" element={<InspectorPage config={config} setOperation={setOperation} />} />
+        <Route path="/proxy-solicitor" element={<SolicitorPage config={config} setOperation={setOperation} />} />
       </Routes>
     </Shell>
   );
