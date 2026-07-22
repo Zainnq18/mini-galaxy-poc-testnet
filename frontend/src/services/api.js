@@ -3,23 +3,71 @@
 
 const BASE_URL = import.meta.env.VITE_RELAYER_URL || "http://localhost:4000";
 const ROLE_KEY_PREFIX = "br_proxy_role_v44_";
+const GET_RETRY_COUNT = Math.max(0, Number(import.meta.env.VITE_API_GET_RETRIES || 2));
+const GET_RETRY_BASE_DELAY_MS = Math.max(250, Number(import.meta.env.VITE_API_RETRY_DELAY_MS || 1200));
+const RETRYABLE_GET_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+function delay(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
 
 async function request(path, options = {}) {
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    }
-  });
+  const method = String(options.method || "GET").toUpperCase();
+  const attempts = method === "GET" ? GET_RETRY_COUNT + 1 : 1;
+  let lastError = null;
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(payload.error || `Request failed: ${response.status}`);
-    error.status = response.status;
-    throw error;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(`${BASE_URL}${path}`, {
+        ...options,
+        method,
+        cache: method === "GET" ? "no-store" : options.cache,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {})
+        }
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) return payload;
+
+      const error = new Error(payload.error || `Request failed: ${response.status}`);
+      error.status = response.status;
+      lastError = error;
+
+      const canRetry =
+        method === "GET" &&
+        RETRYABLE_GET_STATUSES.has(response.status) &&
+        attempt + 1 < attempts;
+
+      if (!canRetry) throw error;
+    } catch (error) {
+      lastError = error;
+      const isHttpError = Number.isInteger(error?.status);
+      const canRetryNetworkError =
+        method === "GET" && !isHttpError && attempt + 1 < attempts;
+      const canRetryHttpError =
+        method === "GET" &&
+        isHttpError &&
+        RETRYABLE_GET_STATUSES.has(error.status) &&
+        attempt + 1 < attempts;
+
+      if (!canRetryNetworkError && !canRetryHttpError) {
+        if (!isHttpError) {
+          const unavailable = new Error(
+            `Backend unavailable at ${BASE_URL}. ${error?.message || "Network request failed."}`
+          );
+          unavailable.cause = error;
+          throw unavailable;
+        }
+        throw error;
+      }
+    }
+
+    await delay(GET_RETRY_BASE_DELAY_MS * (attempt + 1));
   }
-  return payload;
+
+  throw lastError || new Error("Request failed.");
 }
 
 function eventPath(eventId, scopedPath, legacyPath) {
