@@ -1,0 +1,383 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+DROP TABLE IF EXISTS communication_deliveries CASCADE;
+DROP TABLE IF EXISTS snap_subscriptions CASCADE;
+DROP TABLE IF EXISTS subscriptions CASCADE;
+DROP TABLE IF EXISTS communications CASCADE;
+DROP TABLE IF EXISTS event_index_state CASCADE;
+DROP TABLE IF EXISTS relayer_transactions CASCADE;
+DROP TABLE IF EXISTS worker_heartbeats CASCADE;
+DROP TABLE IF EXISTS votes CASCADE;
+DROP TABLE IF EXISTS jobs CASCADE;
+DROP TABLE IF EXISTS snapshot_entries CASCADE;
+DROP TABLE IF EXISTS events CASCADE;
+DROP TABLE IF EXISTS token_holder_candidates CASCADE;
+DROP TABLE IF EXISTS token_index_cursors CASCADE;
+DROP TABLE IF EXISTS tokens CASCADE;
+DROP TABLE IF EXISTS sessions CASCADE;
+DROP TABLE IF EXISTS auth_nonces CASCADE;
+DROP TABLE IF EXISTS auth_challenges CASCADE;
+DROP FUNCTION IF EXISTS set_updated_at() CASCADE;
+
+CREATE FUNCTION set_updated_at()
+RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TABLE auth_challenges (
+  wallet_address varchar(42) PRIMARY KEY,
+  message text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE sessions (
+  token_hash varchar(64) PRIMARY KEY,
+  wallet_address varchar(42) NOT NULL,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX sessions_wallet_idx
+  ON sessions(wallet_address, expires_at DESC);
+
+CREATE TABLE events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  chain_id integer NOT NULL
+    CHECK (chain_id = 80002),
+
+  creator_address varchar(42) NOT NULL,
+  token_address varchar(42) NOT NULL,
+  token_name varchar(120) NOT NULL,
+  token_symbol varchar(40) NOT NULL,
+
+  token_decimals smallint NOT NULL
+    CHECK (token_decimals BETWEEN 0 AND 36),
+
+  title varchar(180) NOT NULL,
+  description text NOT NULL DEFAULT '',
+
+  metadata_json jsonb NOT NULL,
+  metadata_hash varchar(66) NOT NULL,
+  proposal_config numeric(78,0) NOT NULL,
+
+  record_date_at timestamptz NOT NULL,
+  record_date_block bigint,
+  record_date_block_hash varchar(66),
+
+  snapshot_root varchar(66),
+  snapshot_holder_count integer,
+  snapshot_total_balance numeric(78,0),
+
+  token_to_vote_ratio bigint NOT NULL
+    CHECK (token_to_vote_ratio > 0),
+
+  vote_unit numeric(78,0) NOT NULL
+    CHECK (vote_unit > 0),
+
+  voting_start_at timestamptz NOT NULL,
+  voting_end_at timestamptz NOT NULL,
+
+  discovery_mode varchar(24) NOT NULL
+    CHECK (
+      discovery_mode IN (
+        'PUBLIC_ELIGIBLE',
+        'SUBSCRIBERS_ONLY',
+        'DIRECT_LINK'
+      )
+    ),
+
+  authenticity_claim varchar(24) NOT NULL
+    CHECK (
+      authenticity_claim IN (
+        'COMMUNITY',
+        'ISSUER_AUTHORIZED'
+      )
+    ),
+
+  authenticity_status varchar(28) NOT NULL
+    CHECK (
+      authenticity_status IN (
+        'COMMUNITY',
+        'SELF_CLAIMED',
+        'TOKEN_OWNER_VERIFIED'
+      )
+    ),
+
+  snap_delivery_mode varchar(24) NOT NULL
+    CHECK (
+      snap_delivery_mode IN (
+        'DISABLED',
+        'ELIGIBLE',
+        'SUBSCRIBERS_ONLY'
+      )
+    ),
+
+  build_status varchar(20) NOT NULL DEFAULT 'QUEUED'
+    CHECK (
+      build_status IN (
+        'QUEUED',
+        'SNAPSHOTTING',
+        'DEPLOYING',
+        'READY',
+        'FAILED'
+      )
+    ),
+
+  build_progress smallint NOT NULL DEFAULT 0
+    CHECK (build_progress BETWEEN 0 AND 100),
+
+  build_message text,
+  failure_reason text,
+
+  contract_address varchar(42),
+  deployment_tx_hash varchar(66),
+  deployment_block bigint,
+
+  source_verification_status varchar(20)
+    NOT NULL DEFAULT 'NOT_SUBMITTED'
+    CHECK (
+      source_verification_status IN (
+        'NOT_SUBMITTED',
+        'PENDING',
+        'VERIFIED',
+        'FAILED'
+      )
+    ),
+
+  source_verification_url text,
+  source_verification_error text,
+
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+
+  CHECK (voting_start_at < voting_end_at)
+);
+
+CREATE UNIQUE INDEX events_contract_unique
+  ON events(chain_id, contract_address)
+  WHERE contract_address IS NOT NULL;
+
+CREATE INDEX events_creator_idx
+  ON events(creator_address, created_at DESC);
+
+CREATE INDEX events_token_idx
+  ON events(token_address, voting_end_at DESC);
+
+CREATE INDEX events_discovery_idx
+  ON events(discovery_mode, build_status, voting_end_at DESC);
+
+CREATE TRIGGER events_updated_at
+BEFORE UPDATE ON events
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE snapshot_entries (
+  event_id uuid NOT NULL
+    REFERENCES events(id)
+    ON DELETE CASCADE,
+
+  wallet_address varchar(42) NOT NULL,
+
+  raw_balance numeric(78,0) NOT NULL
+    CHECK (raw_balance > 0),
+
+  voting_power numeric(78,0) NOT NULL
+    CHECK (voting_power >= 0),
+
+  merkle_proof jsonb NOT NULL,
+
+  PRIMARY KEY (event_id, wallet_address)
+);
+
+CREATE INDEX snapshot_wallet_idx
+  ON snapshot_entries(wallet_address, event_id);
+
+CREATE TABLE jobs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  type varchar(20) NOT NULL
+    CHECK (
+      type IN (
+        'CREATE_EVENT',
+        'RELAY_VOTE'
+      )
+    ),
+
+  dedupe_key text NOT NULL,
+
+  event_id uuid NOT NULL
+    REFERENCES events(id)
+    ON DELETE CASCADE,
+
+  voter_address varchar(42),
+
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+
+  status varchar(16) NOT NULL DEFAULT 'PENDING'
+    CHECK (
+      status IN (
+        'PENDING',
+        'RUNNING',
+        'COMPLETED',
+        'FAILED'
+      )
+    ),
+
+  attempts smallint NOT NULL DEFAULT 0,
+  available_at timestamptz NOT NULL DEFAULT now(),
+
+  locked_at timestamptz,
+  locked_by text,
+
+  progress smallint NOT NULL DEFAULT 0
+    CHECK (progress BETWEEN 0 AND 100),
+
+  message text,
+  error text,
+
+  raw_transaction text,
+  transaction_hash varchar(66),
+  relayer_address varchar(42),
+  transaction_nonce bigint,
+
+  result jsonb,
+
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX jobs_active_dedupe_idx
+  ON jobs(dedupe_key)
+  WHERE status IN ('PENDING', 'RUNNING');
+
+CREATE INDEX jobs_queue_idx
+  ON jobs(status, available_at, created_at);
+
+CREATE INDEX jobs_event_idx
+  ON jobs(event_id, created_at DESC);
+
+CREATE UNIQUE INDEX jobs_relayer_nonce_unique
+  ON jobs(relayer_address, transaction_nonce)
+  WHERE relayer_address IS NOT NULL
+    AND transaction_nonce IS NOT NULL;
+
+CREATE TRIGGER jobs_updated_at
+BEFORE UPDATE ON jobs
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE votes (
+  event_id uuid NOT NULL
+    REFERENCES events(id)
+    ON DELETE CASCADE,
+
+  voter_address varchar(42) NOT NULL,
+
+  snapshot_balance numeric(78,0) NOT NULL
+    CHECK (snapshot_balance > 0),
+
+  voting_power numeric(78,0) NOT NULL
+    CHECK (voting_power > 0),
+
+  choices jsonb NOT NULL,
+  choices_hex text NOT NULL,
+  voter_signature text NOT NULL,
+
+  status varchar(16) NOT NULL DEFAULT 'QUEUED'
+    CHECK (
+      status IN (
+        'QUEUED',
+        'SUBMITTED',
+        'CONFIRMED',
+        'FAILED'
+      )
+    ),
+
+  transaction_hash varchar(66),
+  block_number bigint,
+  failure_reason text,
+
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+
+  PRIMARY KEY (event_id, voter_address)
+);
+
+CREATE UNIQUE INDEX votes_tx_unique
+  ON votes(transaction_hash)
+  WHERE transaction_hash IS NOT NULL;
+
+CREATE TRIGGER votes_updated_at
+BEFORE UPDATE ON votes
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE communications (
+  message_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  event_id uuid NOT NULL
+    REFERENCES events(id)
+    ON DELETE CASCADE,
+
+  creator_address varchar(42) NOT NULL,
+
+  category varchar(28) NOT NULL
+    CHECK (
+      category IN (
+        'EVENT_ANNOUNCEMENT',
+        'VOTING_OPEN',
+        'DEADLINE_REMINDER',
+        'DOCUMENT_UPDATE',
+        'RESULTS_AVAILABLE',
+        'GENERAL'
+      )
+    ),
+
+  audience varchar(20) NOT NULL
+    CHECK (
+      audience IN (
+        'ALL_ELIGIBLE',
+        'NOT_VOTED',
+        'SUBSCRIBERS'
+      )
+    ),
+
+  title varchar(180) NOT NULL,
+  body text NOT NULL,
+  action_url text NOT NULL,
+
+  published_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+
+  creator_signature text NOT NULL,
+
+  revoked_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+
+  CHECK (expires_at > published_at)
+);
+
+CREATE INDEX communications_event_idx
+  ON communications(event_id, published_at DESC);
+
+CREATE TABLE subscriptions (
+  wallet_address varchar(42) NOT NULL,
+  token_address varchar(42) NOT NULL,
+
+  categories text[] NOT NULL DEFAULT ARRAY[
+    'EVENT_ANNOUNCEMENT',
+    'VOTING_OPEN',
+    'DEADLINE_REMINDER',
+    'RESULTS_AVAILABLE'
+  ],
+
+  enabled boolean NOT NULL DEFAULT true,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+
+  PRIMARY KEY (wallet_address, token_address)
+);
